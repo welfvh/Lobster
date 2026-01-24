@@ -11,13 +11,11 @@ import json
 import logging
 import sys
 import time
-import uuid
 from pathlib import Path
 
 # Configuration
 INBOX_DIR = Path.home() / "messages" / "inbox"
 WORKSPACE = Path.home() / "hyperion-workspace"
-SESSION_FILE = WORKSPACE / ".hyperion_session_id"
 LOG_DIR = WORKSPACE / "logs"
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 LOG_FILE = LOG_DIR / "daemon.log"
@@ -38,24 +36,6 @@ logging.basicConfig(
 log = logging.getLogger("hyperion")
 
 
-def get_or_create_session_id() -> str:
-    """Get existing session ID or create a new one on first startup."""
-    if SESSION_FILE.exists():
-        existing = SESSION_FILE.read_text().strip()
-        # Validate it's a proper UUID
-        try:
-            uuid.UUID(existing)
-            return existing
-        except ValueError:
-            log.warning(f"Invalid session ID found, generating new one")
-
-    # Generate a new UUID4 session ID
-    session_id = str(uuid.uuid4())
-    SESSION_FILE.write_text(session_id)
-    log.info(f"Created new session ID: {session_id}")
-    return session_id
-
-
 def count_inbox_messages() -> int:
     """Count messages in inbox."""
     return len(list(INBOX_DIR.glob("*.json")))
@@ -72,10 +52,10 @@ def get_inbox_messages() -> list[dict]:
     return messages
 
 
-async def process_messages(session_id: str) -> tuple[bool, str]:
+async def process_messages() -> tuple[bool, str]:
     """
     Invoke Claude to process inbox messages.
-    Uses a persistent session ID for shared context across invocations.
+    Each invocation is independent - no session persistence.
     """
     prompt = """You are Hyperion. Check your inbox and process all messages.
 
@@ -93,7 +73,6 @@ Process ALL messages in the inbox."""
         "-p", prompt,
         "--print",
         "--dangerously-skip-permissions",
-        "--session-id", session_id,
     ]
 
     log.info("Invoking Claude to process messages...")
@@ -146,10 +125,6 @@ async def daemon_loop():
     WORKSPACE.mkdir(parents=True, exist_ok=True)
     INBOX_DIR.mkdir(parents=True, exist_ok=True)
 
-    # Get or create session ID
-    session_id = get_or_create_session_id()
-    log.info(f"Session ID: {session_id}")
-
     consecutive_errors = 0
     max_errors = 5
 
@@ -162,7 +137,7 @@ async def daemon_loop():
             if msg_count > 0:
                 log.info(f"📬 {msg_count} message(s) in inbox")
 
-                success, output = await process_messages(session_id)
+                success, output = await process_messages()
 
                 if success:
                     consecutive_errors = 0
