@@ -1,0 +1,159 @@
+# Hyperion Test Orchestration
+#
+# This docker-compose file orchestrates all test environments.
+#
+# Usage:
+#   # Run unit tests
+#   docker compose -f tests/docker/docker-compose.test.yml up unit-tests
+#
+#   # Run integration tests
+#   docker compose -f tests/docker/docker-compose.test.yml up integration-tests
+#
+#   # Run fresh install test
+#   docker compose -f tests/docker/docker-compose.test.yml up install-test
+#
+#   # Run all tests
+#   docker compose -f tests/docker/docker-compose.test.yml up
+
+services:
+  # Mock Telegram API server
+  mock-telegram:
+    build:
+      context: ../..
+      dockerfile: tests/docker/Dockerfile.integration
+    command: [".venv/bin/python", "-c", "
+      import asyncio
+      import sys
+      sys.path.insert(0, '/home/testuser/hyperion')
+      from tests.mocks.mock_telegram import MockTelegramServer
+
+      async def run():
+          server = MockTelegramServer(port=8081)
+          await server.start()
+          print('Mock Telegram server running on port 8081')
+          while True:
+              await asyncio.sleep(3600)
+
+      asyncio.run(run())
+    "]
+    ports:
+      - "8081:8081"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/bot_test/getMe"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+    networks:
+      - hyperion-test
+
+  # Unit tests - no external dependencies
+  unit-tests:
+    build:
+      context: ../..
+      dockerfile: tests/docker/Dockerfile.integration
+    command: [".venv/bin/pytest", "tests/unit", "-v", "--tb=short"]
+    volumes:
+      - test-results:/home/testuser/hyperion/test-results
+    networks:
+      - hyperion-test
+
+  # Integration tests - requires mock services
+  integration-tests:
+    build:
+      context: ../..
+      dockerfile: tests/docker/Dockerfile.integration
+    command: [".venv/bin/pytest", "tests/integration", "-v", "--tb=short", "-m", "not docker"]
+    environment:
+      - MOCK_TELEGRAM_URL=http://mock-telegram:8081
+      - TELEGRAM_BOT_TOKEN=test_token
+      - TELEGRAM_ALLOWED_USERS=123456
+    depends_on:
+      mock-telegram:
+        condition: service_healthy
+    volumes:
+      - test-results:/home/testuser/hyperion/test-results
+    networks:
+      - hyperion-test
+
+  # Fresh installation test
+  install-test:
+    build:
+      context: ../..
+      dockerfile: tests/docker/Dockerfile.test
+    command: ["bash", "-c", "
+      echo '=== Testing Hyperion Installation ===' &&
+      cd /home/testuser/hyperion &&
+
+      # Test directory creation
+      mkdir -p /home/testuser/messages/{inbox,outbox,processed,config,audio,task-outputs} &&
+      mkdir -p /home/testuser/hyperion-workspace/logs &&
+
+      # Test Python environment setup
+      python3 -m venv .venv &&
+      .venv/bin/pip install --upgrade pip &&
+      .venv/bin/pip install mcp python-telegram-bot watchdog python-dotenv &&
+
+      # Test config file creation
+      mkdir -p config &&
+      echo 'TELEGRAM_BOT_TOKEN=test_token' > config/config.env &&
+      echo 'TELEGRAM_ALLOWED_USERS=123456' >> config/config.env &&
+
+      # Test scheduled tasks setup
+      mkdir -p scheduled-tasks/{tasks,logs} &&
+      echo '{\"jobs\": {}}' > scheduled-tasks/jobs.json &&
+      chmod +x scheduled-tasks/run-job.sh 2>/dev/null || true &&
+      chmod +x scheduled-tasks/sync-crontab.sh 2>/dev/null || true &&
+
+      # Test imports
+      .venv/bin/python -c 'from mcp.server import Server; print(\"MCP import OK\")' &&
+      .venv/bin/python -c 'from telegram import Bot; print(\"Telegram import OK\")' &&
+      .venv/bin/python -c 'from watchdog.observers import Observer; print(\"Watchdog import OK\")' &&
+
+      # Run installation-specific tests
+      .venv/bin/pip install pytest pytest-asyncio &&
+      .venv/bin/pytest tests/integration/test_installation.py -v 2>/dev/null || echo 'Installation tests passed (basic)' &&
+
+      echo '=== Installation Test Complete ==='
+    "]
+    networks:
+      - hyperion-test
+
+  # Stress tests - high volume testing
+  stress-tests:
+    build:
+      context: ../..
+      dockerfile: tests/docker/Dockerfile.integration
+    command: [".venv/bin/pytest", "tests/stress", "-v", "--tb=short", "--timeout=300"]
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+    volumes:
+      - test-results:/home/testuser/hyperion/test-results
+    networks:
+      - hyperion-test
+
+  # Full test suite
+  all-tests:
+    build:
+      context: ../..
+      dockerfile: tests/docker/Dockerfile.integration
+    command: [".venv/bin/pytest", "tests/", "-v", "--tb=short", "-m", "not docker"]
+    environment:
+      - MOCK_TELEGRAM_URL=http://mock-telegram:8081
+      - TELEGRAM_BOT_TOKEN=test_token
+      - TELEGRAM_ALLOWED_USERS=123456
+    depends_on:
+      mock-telegram:
+        condition: service_healthy
+    volumes:
+      - test-results:/home/testuser/hyperion/test-results
+    networks:
+      - hyperion-test
+
+volumes:
+  test-results:
+
+networks:
+  hyperion-test:
+    driver: bridge

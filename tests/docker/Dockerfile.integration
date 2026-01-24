@@ -1,0 +1,70 @@
+# Hyperion Integration Test Environment
+#
+# This Dockerfile creates a complete test environment with all
+# dependencies pre-installed for running integration tests.
+#
+# Usage:
+#   docker build -f Dockerfile.integration -t hyperion-test-integration .
+#   docker run --rm hyperion-test-integration
+
+FROM python:3.11-slim-bookworm
+
+# Prevent interactive prompts
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    sudo \
+    curl \
+    wget \
+    git \
+    ca-certificates \
+    jq \
+    cron \
+    ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create test user
+RUN useradd -m -s /bin/bash testuser \
+    && echo "testuser ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
+
+# Switch to test user
+USER testuser
+WORKDIR /home/testuser
+
+# Set up environment
+ENV HOME=/home/testuser
+ENV PATH="${HOME}/.local/bin:${PATH}"
+
+# Create directory structure
+RUN mkdir -p \
+    /home/testuser/hyperion \
+    /home/testuser/hyperion-workspace/logs \
+    /home/testuser/messages/inbox \
+    /home/testuser/messages/outbox \
+    /home/testuser/messages/processed \
+    /home/testuser/messages/config \
+    /home/testuser/messages/audio \
+    /home/testuser/messages/task-outputs
+
+# Copy source code
+COPY --chown=testuser:testuser . /home/testuser/hyperion
+
+# Install Python dependencies
+RUN cd /home/testuser/hyperion && \
+    python -m venv .venv && \
+    .venv/bin/pip install --upgrade pip && \
+    .venv/bin/pip install -r requirements.txt 2>/dev/null || true && \
+    .venv/bin/pip install -r tests/requirements-test.txt
+
+# Initialize required files
+RUN echo '{"tasks": [], "next_id": 1}' > /home/testuser/messages/tasks.json && \
+    mkdir -p /home/testuser/hyperion/scheduled-tasks/tasks && \
+    mkdir -p /home/testuser/hyperion/scheduled-tasks/logs && \
+    echo '{"jobs": {}}' > /home/testuser/hyperion/scheduled-tasks/jobs.json
+
+# Set working directory
+WORKDIR /home/testuser/hyperion
+
+# Default command runs all tests
+CMD [".venv/bin/pytest", "tests/", "-v", "--tb=short"]

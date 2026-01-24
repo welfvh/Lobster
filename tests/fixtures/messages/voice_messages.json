@@ -1,0 +1,47 @@
+[
+  {
+    "id": "1769254753447_16",
+    "source": "telegram",
+    "chat_id": 100003,
+    "user_id": 100003,
+    "username": "charlie",
+    "user_name": "Charlie",
+    "text": "[Voice message - pending transcription]",
+    "type": "voice",
+    "timestamp": "2026-01-24T11:39:13.447791+00:00",
+    "audio_file": "/tmp/audio_1769254753447_16.ogg",
+    "audio_duration": 5,
+    "audio_mime_type": "audio/ogg",
+    "file_id": "voice_59a67a3e9d414e0b"
+  },
+  {
+    "id": "1769254753447_17",
+    "source": "telegram",
+    "chat_id": 100003,
+    "user_id": 100003,
+    "username": "charlie",
+    "user_name": "Charlie",
+    "text": "[Voice message - pending transcription]",
+    "type": "voice",
+    "timestamp": "2026-01-24T11:39:13.447827+00:00",
+    "audio_file": "/tmp/audio_1769254753447_17.ogg",
+    "audio_duration": 30,
+    "audio_mime_type": "audio/ogg",
+    "file_id": "voice_0493b3faff5f4121"
+  },
+  {
+    "id": "1769254753447_18",
+    "source": "telegram",
+    "chat_id": 100002,
+    "user_id": 100002,
+    "username": "bob",
+    "user_name": "Bob",
+    "text": "[Voice message - pending transcription]",
+    "type": "voice",
+    "timestamp": "2026-01-24T11:39:13.447846+00:00",
+    "audio_file": "/tmp/audio_1769254753447_18.ogg",
+    "audio_duration": 120,
+    "audio_mime_type": "audio/ogg",
+    "file_id": "voice_9dc28269977c48b0"
+  }
+]

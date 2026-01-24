@@ -1,0 +1,37 @@
+{
+  "jobs": {
+    "morning-news": {
+      "name": "daily-backup",
+      "schedule": "0 2 * * *",
+      "schedule_human": "Cron: 0 2 * * *",
+      "task_file": "tasks/daily-backup.md",
+      "created_at": "2026-01-24T11:39:13.475811+00:00",
+      "updated_at": "2026-01-24T11:39:13.475811+00:00",
+      "enabled": true,
+      "last_run": null,
+      "last_status": null
+    },
+    "cleanup-logs": {
+      "name": "hourly-check",
+      "schedule": "0 * * * *",
+      "schedule_human": "Cron: 0 * * * *",
+      "task_file": "tasks/hourly-check.md",
+      "created_at": "2026-01-24T11:39:13.475819+00:00",
+      "updated_at": "2026-01-24T11:39:13.475819+00:00",
+      "enabled": true,
+      "last_run": null,
+      "last_status": null
+    },
+    "hourly-check": {
+      "name": "daily-backup",
+      "schedule": "0 2 * * *",
+      "schedule_human": "Cron: 0 2 * * *",
+      "task_file": "tasks/daily-backup.md",
+      "created_at": "2026-01-24T11:39:13.475825+00:00",
+      "updated_at": "2026-01-24T11:39:13.475825+00:00",
+      "enabled": true,
+      "last_run": null,
+      "last_status": null
+    }
+  }
+}

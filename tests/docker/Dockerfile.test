@@ -1,0 +1,46 @@
+# Hyperion Test Environment - Fresh Debian Install
+#
+# This Dockerfile creates a clean Debian environment for testing
+# the Hyperion installation process from scratch.
+#
+# Usage:
+#   docker build -f Dockerfile.test -t hyperion-test-install .
+#   docker run --rm -it hyperion-test-install
+
+FROM debian:bookworm-slim
+
+# Prevent interactive prompts
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install base requirements
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    sudo \
+    curl \
+    wget \
+    git \
+    ca-certificates \
+    gnupg \
+    python3 \
+    python3-pip \
+    python3-venv \
+    jq \
+    cron \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create test user with sudo access
+RUN useradd -m -s /bin/bash testuser \
+    && echo "testuser ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
+
+# Switch to test user
+USER testuser
+WORKDIR /home/testuser
+
+# Copy the Hyperion source code
+COPY --chown=testuser:testuser . /home/testuser/hyperion
+
+# Set up environment
+ENV HOME=/home/testuser
+ENV PATH="${HOME}/.local/bin:${HOME}/.claude/bin:${PATH}"
+
+# Default command runs install test
+CMD ["bash", "-c", "cd /home/testuser/hyperion && pytest tests/integration/test_installation.py -v"]
