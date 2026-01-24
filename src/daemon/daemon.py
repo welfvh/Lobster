@@ -11,6 +11,7 @@ import json
 import logging
 import sys
 import time
+import uuid
 from pathlib import Path
 
 # Configuration
@@ -19,7 +20,7 @@ WORKSPACE = Path.home() / "hyperion-workspace"
 LOG_DIR = WORKSPACE / "logs"
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 LOG_FILE = LOG_DIR / "daemon.log"
-SESSION_MARKER_FILE = WORKSPACE / ".hyperion_session_started"
+SESSION_ID_FILE = WORKSPACE / ".hyperion_session_id"
 
 POLL_INTERVAL = 5  # seconds between checks
 IDLE_POLL_INTERVAL = 10  # seconds when no messages
@@ -37,14 +38,30 @@ logging.basicConfig(
 log = logging.getLogger("hyperion")
 
 
-def has_existing_session() -> bool:
-    """Check if a session has been started before."""
-    return SESSION_MARKER_FILE.exists()
+def get_or_create_session_id() -> str:
+    """Get existing session ID or create a new one."""
+    if SESSION_ID_FILE.exists():
+        session_id = SESSION_ID_FILE.read_text().strip()
+        if session_id:
+            return session_id
+
+    # Generate new UUID4 session ID
+    session_id = str(uuid.uuid4())
+    SESSION_ID_FILE.write_text(session_id)
+    log.info(f"Created new session ID: {session_id}")
+    return session_id
 
 
-def mark_session_started():
-    """Mark that a session has been started."""
-    SESSION_MARKER_FILE.write_text(str(time.time()))
+def session_has_been_used() -> bool:
+    """Check if a session has been successfully used before."""
+    marker = WORKSPACE / ".hyperion_session_used"
+    return marker.exists()
+
+
+def mark_session_used():
+    """Mark that the session has been successfully used."""
+    marker = WORKSPACE / ".hyperion_session_used"
+    marker.write_text(str(time.time()))
 
 
 def count_inbox_messages() -> int:
@@ -79,24 +96,27 @@ For each message:
 
 Process ALL messages in the inbox."""
 
+    session_id = get_or_create_session_id()
+
     # Build command - use --resume to continue the persistent session
-    if has_existing_session():
-        # Continue existing session
+    if session_has_been_used():
+        # Continue existing session with --resume <session-id>
         cmd = [
             "claude",
-            "--resume",
+            "--resume", session_id,
             "-p", prompt,
             "--dangerously-skip-permissions",
         ]
-        log.info("Invoking Claude (resuming session)...")
+        log.info(f"Invoking Claude (resuming {session_id[:8]}...)...")
     else:
-        # First invocation - start new session
+        # First invocation - create session with known ID
         cmd = [
             "claude",
+            "--session-id", session_id,
             "-p", prompt,
             "--dangerously-skip-permissions",
         ]
-        log.info("Invoking Claude (new session)...")
+        log.info(f"Invoking Claude (new session {session_id[:8]}...)...")
 
     try:
         proc = await asyncio.create_subprocess_exec(
@@ -118,10 +138,10 @@ Process ALL messages in the inbox."""
             log.error(f"Claude error (code {proc.returncode}): {errors}")
             return False, errors
 
-        # Mark session as started after first successful run
-        if not has_existing_session():
-            mark_session_started()
-            log.info("Session marker created for future resumes")
+        # Mark session as used after first successful run
+        if not session_has_been_used():
+            mark_session_used()
+            log.info("Session marked for future resumes")
 
         log.info(f"Claude completed: {output[:200]}...")
         return True, output
