@@ -3,7 +3,7 @@
 Hyperion Daemon - Always-on Claude Code message processor
 
 This daemon monitors the inbox and invokes Claude to process messages.
-Creates its own session ID on first startup for persistent context.
+Uses --resume to maintain a persistent session with full context.
 """
 
 import asyncio
@@ -19,6 +19,7 @@ WORKSPACE = Path.home() / "hyperion-workspace"
 LOG_DIR = WORKSPACE / "logs"
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 LOG_FILE = LOG_DIR / "daemon.log"
+SESSION_MARKER_FILE = WORKSPACE / ".hyperion_session_started"
 
 POLL_INTERVAL = 5  # seconds between checks
 IDLE_POLL_INTERVAL = 10  # seconds when no messages
@@ -34,6 +35,16 @@ logging.basicConfig(
     ],
 )
 log = logging.getLogger("hyperion")
+
+
+def has_existing_session() -> bool:
+    """Check if a session has been started before."""
+    return SESSION_MARKER_FILE.exists()
+
+
+def mark_session_started():
+    """Mark that a session has been started."""
+    SESSION_MARKER_FILE.write_text(str(time.time()))
 
 
 def count_inbox_messages() -> int:
@@ -55,7 +66,7 @@ def get_inbox_messages() -> list[dict]:
 async def process_messages() -> tuple[bool, str]:
     """
     Invoke Claude to process inbox messages.
-    Each invocation is independent - no session persistence.
+    Uses --resume to maintain persistent session context.
     """
     prompt = """You are Hyperion. Check your inbox and process all messages.
 
@@ -68,14 +79,24 @@ For each message:
 
 Process ALL messages in the inbox."""
 
-    cmd = [
-        "claude",
-        "-p", prompt,
-        "--print",
-        "--dangerously-skip-permissions",
-    ]
-
-    log.info("Invoking Claude to process messages...")
+    # Build command - use --resume to continue the persistent session
+    if has_existing_session():
+        # Continue existing session
+        cmd = [
+            "claude",
+            "--resume",
+            "-p", prompt,
+            "--dangerously-skip-permissions",
+        ]
+        log.info("Invoking Claude (resuming session)...")
+    else:
+        # First invocation - start new session
+        cmd = [
+            "claude",
+            "-p", prompt,
+            "--dangerously-skip-permissions",
+        ]
+        log.info("Invoking Claude (new session)...")
 
     try:
         proc = await asyncio.create_subprocess_exec(
@@ -96,6 +117,11 @@ Process ALL messages in the inbox."""
         if proc.returncode != 0:
             log.error(f"Claude error (code {proc.returncode}): {errors}")
             return False, errors
+
+        # Mark session as started after first successful run
+        if not has_existing_session():
+            mark_session_started()
+            log.info("Session marker created for future resumes")
 
         log.info(f"Claude completed: {output[:200]}...")
         return True, output
