@@ -10,13 +10,19 @@ Provides tools for Claude Code to interact with the message queue:
 - mark_processed: Mark a message as processed
 """
 
+import asyncio
 import json
 import os
 import sys
 import time
+import threading
+import httpx
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+from watchdog.observers import Observer
+from watchdog.events import FileSystemEventHandler
 
 # MCP SDK
 from mcp.server import Server
@@ -29,11 +35,23 @@ INBOX_DIR = BASE_DIR / "inbox"
 OUTBOX_DIR = BASE_DIR / "outbox"
 PROCESSED_DIR = BASE_DIR / "processed"
 CONFIG_DIR = BASE_DIR / "config"
+AUDIO_DIR = BASE_DIR / "audio"
 TASKS_FILE = BASE_DIR / "tasks.json"
 
 # Ensure directories exist
-for d in [INBOX_DIR, OUTBOX_DIR, PROCESSED_DIR, CONFIG_DIR]:
+for d in [INBOX_DIR, OUTBOX_DIR, PROCESSED_DIR, CONFIG_DIR, AUDIO_DIR]:
     d.mkdir(parents=True, exist_ok=True)
+
+# OpenAI configuration for Whisper transcription
+# Try environment first, then fall back to config file
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
+if not OPENAI_API_KEY:
+    config_file = Path.home() / "hyperion" / "config" / "config.env"
+    if config_file.exists():
+        for line in config_file.read_text().splitlines():
+            if line.strip().startswith("OPENAI_API_KEY="):
+                OPENAI_API_KEY = line.split("=", 1)[1].strip().strip('"').strip("'")
+                break
 
 # Initialize tasks file if needed
 if not TASKS_FILE.exists():
@@ -55,8 +73,22 @@ async def list_tools() -> list[Tool]:
     """List available tools."""
     return [
         Tool(
+            name="wait_for_messages",
+            description="Block and wait for new messages to arrive. This is the core tool for the always-on loop. Returns immediately if messages exist, otherwise waits until a message arrives or timeout. Use this in your main loop: wait_for_messages -> process -> repeat.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "timeout": {
+                        "type": "integer",
+                        "description": "Maximum seconds to wait. Default 300 (5 minutes). After timeout, returns with a prompt to call again.",
+                        "default": 300,
+                    },
+                },
+            },
+        ),
+        Tool(
             name="check_inbox",
-            description="Check for new messages in the inbox from all sources (Telegram, SMS, Signal, etc.). Returns unprocessed messages.",
+            description="Check for new messages in the inbox from all sources (Telegram, SMS, Signal, etc.). Returns unprocessed messages. For the always-on loop, prefer wait_for_messages which blocks until messages arrive.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -212,6 +244,20 @@ async def list_tools() -> list[Tool]:
                 "required": ["task_id"],
             },
         ),
+        Tool(
+            name="transcribe_audio",
+            description="Transcribe a voice message to text using OpenAI Whisper. Use this for messages with type='voice'.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "message_id": {
+                        "type": "string",
+                        "description": "The message ID of the voice message to transcribe.",
+                    },
+                },
+                "required": ["message_id"],
+            },
+        ),
     ]
 
 
@@ -219,7 +265,9 @@ async def list_tools() -> list[Tool]:
 async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
     """Handle tool calls."""
 
-    if name == "check_inbox":
+    if name == "wait_for_messages":
+        return await handle_wait_for_messages(arguments)
+    elif name == "check_inbox":
         return await handle_check_inbox(arguments)
     elif name == "send_reply":
         return await handle_send_reply(arguments)
@@ -239,8 +287,55 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
         return await handle_get_task(arguments)
     elif name == "delete_task":
         return await handle_delete_task(arguments)
+    elif name == "transcribe_audio":
+        return await handle_transcribe_audio(arguments)
     else:
         return [TextContent(type="text", text=f"Unknown tool: {name}")]
+
+
+async def handle_wait_for_messages(args: dict) -> list[TextContent]:
+    """Block until new messages arrive in inbox, or return immediately if messages exist."""
+    timeout = args.get("timeout", 300)
+
+    # Check if messages already exist
+    existing = list(INBOX_DIR.glob("*.json"))
+    if existing:
+        # Messages already waiting - return them immediately
+        return await handle_check_inbox({"limit": 10})
+
+    # No messages - set up inotify watcher and wait
+    loop = asyncio.get_event_loop()
+    message_arrived = threading.Event()
+
+    class InboxHandler(FileSystemEventHandler):
+        def on_created(self, event):
+            if not event.is_directory and event.src_path.endswith('.json'):
+                message_arrived.set()
+
+    observer = Observer()
+    observer.schedule(InboxHandler(), str(INBOX_DIR), recursive=False)
+    observer.start()
+
+    try:
+        # Wait in a thread-safe way
+        await asyncio.get_event_loop().run_in_executor(
+            None,
+            lambda: message_arrived.wait(timeout=timeout)
+        )
+
+        if message_arrived.is_set():
+            # Small delay to ensure file is fully written
+            await asyncio.sleep(0.1)
+            return await handle_check_inbox({"limit": 10})
+        else:
+            # Timeout - prompt to call again
+            return [TextContent(
+                type="text",
+                text=f"⏰ No messages received in the last {timeout} seconds. Call `wait_for_messages` again to continue waiting."
+            )]
+    finally:
+        observer.stop()
+        observer.join(timeout=1)
 
 
 async def handle_check_inbox(args: dict) -> list[TextContent]:
@@ -554,6 +649,111 @@ async def handle_delete_task(args: dict) -> list[TextContent]:
 
     save_tasks(data)
     return [TextContent(type="text", text=f"🗑️ Task #{task_id} deleted.")]
+
+
+# =============================================================================
+# Audio Transcription Handler
+# =============================================================================
+
+async def handle_transcribe_audio(args: dict) -> list[TextContent]:
+    """Transcribe a voice message using OpenAI Whisper API."""
+    message_id = args.get("message_id", "")
+
+    if not message_id:
+        return [TextContent(type="text", text="Error: message_id is required.")]
+
+    if not OPENAI_API_KEY:
+        return [TextContent(type="text", text="Error: OPENAI_API_KEY not configured. Set it in config.env.")]
+
+    # Find the message file
+    msg_file = None
+    msg_data = None
+    for f in INBOX_DIR.glob("*.json"):
+        if message_id in f.name:
+            msg_file = f
+            break
+        try:
+            with open(f) as fp:
+                data = json.load(fp)
+                if data.get("id") == message_id:
+                    msg_file = f
+                    msg_data = data
+                    break
+        except:
+            continue
+
+    if not msg_file:
+        # Also check processed directory
+        for f in PROCESSED_DIR.glob("*.json"):
+            if message_id in f.name:
+                msg_file = f
+                break
+            try:
+                with open(f) as fp:
+                    data = json.load(fp)
+                    if data.get("id") == message_id:
+                        msg_file = f
+                        msg_data = data
+                        break
+            except:
+                continue
+
+    if not msg_file:
+        return [TextContent(type="text", text=f"Error: Message not found: {message_id}")]
+
+    # Load message data if not already loaded
+    if not msg_data:
+        with open(msg_file) as fp:
+            msg_data = json.load(fp)
+
+    # Check if it's a voice message
+    if msg_data.get("type") != "voice":
+        return [TextContent(type="text", text=f"Error: Message {message_id} is not a voice message.")]
+
+    # Check if already transcribed
+    if msg_data.get("transcription"):
+        return [TextContent(type="text", text=f"✅ Already transcribed:\n\n{msg_data['transcription']}")]
+
+    # Get the audio file path
+    audio_path = Path(msg_data.get("audio_file", ""))
+    if not audio_path.exists():
+        return [TextContent(type="text", text=f"Error: Audio file not found: {audio_path}")]
+
+    # Call OpenAI Whisper API
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            with open(audio_path, "rb") as audio_file:
+                response = await client.post(
+                    "https://api.openai.com/v1/audio/transcriptions",
+                    headers={"Authorization": f"Bearer {OPENAI_API_KEY}"},
+                    files={"file": (audio_path.name, audio_file, "audio/ogg")},
+                    data={"model": "whisper-1"},
+                )
+
+            if response.status_code != 200:
+                error_msg = response.text
+                return [TextContent(type="text", text=f"Error from Whisper API: {error_msg}")]
+
+            result = response.json()
+            transcription = result.get("text", "")
+
+            if not transcription:
+                return [TextContent(type="text", text="Error: Empty transcription returned.")]
+
+            # Update the message file with transcription
+            msg_data["transcription"] = transcription
+            msg_data["text"] = transcription  # Replace placeholder text
+            msg_data["transcribed_at"] = datetime.now(timezone.utc).isoformat()
+
+            with open(msg_file, "w") as fp:
+                json.dump(msg_data, fp, indent=2)
+
+            return [TextContent(type="text", text=f"🎤 **Transcription complete:**\n\n{transcription}")]
+
+    except httpx.TimeoutException:
+        return [TextContent(type="text", text="Error: Transcription request timed out.")]
+    except Exception as e:
+        return [TextContent(type="text", text=f"Error during transcription: {str(e)}")]
 
 
 async def main():

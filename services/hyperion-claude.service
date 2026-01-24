@@ -1,0 +1,26 @@
+[Unit]
+Description=Hyperion Claude - Always-on Claude Code session
+After=network.target
+Wants=hyperion-router.service
+
+[Service]
+Type=forking
+User=admin
+Group=admin
+WorkingDirectory=/home/admin/hyperion-workspace
+Environment="HOME=/home/admin"
+Environment="PATH=/home/admin/.local/bin:/usr/local/bin:/usr/bin:/bin"
+
+# Start tmux with Claude
+ExecStart=/usr/bin/tmux -L hyperion new-session -d -s hyperion -c /home/admin/hyperion-workspace claude --dangerously-skip-permissions
+ExecStop=/usr/bin/tmux -L hyperion kill-session -t hyperion
+
+# Check if tmux session exists
+ExecStartPost=/bin/sleep 2
+ExecStartPost=/usr/bin/tmux -L hyperion has-session -t hyperion
+
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
