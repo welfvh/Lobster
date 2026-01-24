@@ -6,13 +6,14 @@
 # Optimized for: tmux + zsh power users
 #
 # Features:
-# - Claude Code (latest native binary)
-# - Telegram MCP Server (send/receive messages via Claude)
-# - Signal MCP Server (encrypted messaging)
-# - Twilio SMS MCP Server (text messages)
+# - Claude Code (latest native binary, always-on session)
+# - Telegram Bot (send/receive messages via Claude)
+# - Voice message transcription (OpenAI Whisper API)
 # - Security hardening (firewall, fail2ban, SSH keys only)
 # - Full zsh + oh-my-zsh + powerlevel10k setup
 # - Advanced tmux configuration with agent-specific layouts
+#
+# Future: Signal, Twilio SMS (see docs/FUTURE.md)
 #
 # Usage: bash hyperion-agent-hub-setup.sh
 #===============================================================================

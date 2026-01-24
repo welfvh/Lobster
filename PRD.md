@@ -1,38 +1,40 @@
-# Hyperion Hub - Product Requirements Document
+# Hyperion - Product Requirements Document
 
 ## Overview
 
-Hyperion Hub is a secure, self-hosted personal server environment for running Claude Code with integrated messaging capabilities. It provides a hardened Linux server setup optimized for power users who want persistent AI agent sessions with multi-channel communication.
+Hyperion is a secure, self-hosted personal server environment for running an always-on Claude Code session with Telegram integration. Claude maintains persistent context across all messages, running in an infinite loop that blocks until new messages arrive.
 
 ## Problem Statement
 
-Running Claude Code as a persistent agent with messaging integrations requires significant manual configuration: shell environment, terminal multiplexing, MCP servers, security hardening, and credential management. Users need a reproducible, secure setup that "just works."
+Running Claude Code as a persistent agent with messaging reach-back requires significant manual configuration: the session must survive SSH disconnects, maintain conversation context indefinitely, and integrate with messaging platforms. Users need a reproducible, secure setup that "just works."
 
 ## Solution
 
-A single setup script that transforms a fresh Debian/Ubuntu server into a fully-configured Claude Code hub with:
+A systemd-managed always-on Claude Code session with:
 
-- **Telegram integration** via bot API for message processing
-- **Persistent sessions** via tmux with agent-optimized layouts
-- **Power-user shell** via zsh + oh-my-zsh + Powerlevel10k
+- **Always-on Claude session** running in tmux, never exiting
+- **Telegram Bot integration** for receiving/sending messages
+- **Blocking message queue** - Claude calls `wait_for_messages` and blocks until messages arrive
+- **Persistent context** - conversation history maintained across all interactions
 - **Security hardening** via UFW firewall, fail2ban, and SSH lockdown
 
 ## Core Features
 
 | Feature | Description |
 |---------|-------------|
-| Claude Code | Native binary with MCP server configuration |
+| Always-on Claude | Persistent Claude Code session in tmux via systemd |
 | Telegram Bot | Receive/send messages through Telegram Bot API |
-| tmux layouts | Pre-configured agent, dev, and monitor modes |
-| zsh environment | Aliases, functions, and productivity plugins |
+| Blocking inbox | `wait_for_messages` tool blocks until new messages arrive (inotify) |
+| Voice messages | Audio transcription via OpenAI Whisper API |
+| tmux session | Claude runs in `hyperion` tmux session, attachable for debugging |
 | Security | Firewall, intrusion prevention, SSH hardening |
 
 > **Future integrations:** See [docs/FUTURE.md](docs/FUTURE.md) for planned Signal and Twilio SMS support.
 
 ## Target Users
 
-- Developers running persistent Claude Code sessions
-- Users wanting AI agents with messaging reach-back
+- Developers wanting persistent AI agents with messaging reach-back
+- Users who want Claude to maintain context across all conversations
 - Power users comfortable with terminal-based workflows
 
 ## Non-Goals
@@ -40,49 +42,81 @@ A single setup script that transforms a fresh Debian/Ubuntu server into a fully-
 - GUI/web interface
 - Multi-user support
 - Container orchestration
-- Cloud provider integrations
-
-## Success Metrics
-
-- Setup completes in <10 minutes on fresh server
-- Agent sessions persist across SSH disconnects
-- MCP servers connect without manual intervention
-- Security scans pass basic hardening checks
+- Multiple Claude instances
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────┐
-│              Hyperion Hub                    │
-├─────────────────────────────────────────────┤
-│  systemd services                           │
-│  ├── hyperion-daemon (Claude processor)    │
-│  └── hyperion-router (Telegram bot)        │
-├─────────────────────────────────────────────┤
-│  MCP Server                                 │
-│  └── hyperion-inbox (message queue)        │
-├─────────────────────────────────────────────┤
-│  tmux sessions (optional)                   │
-│  ├── agent (Claude Code)                   │
-│  ├── dev (Claude + terminal panes)         │
-│  └── monitor (htop + logs)                 │
-├─────────────────────────────────────────────┤
-│  Security Layer                             │
-│  ├── UFW (SSH only by default)             │
-│  ├── fail2ban (brute-force prevention)     │
-│  └── SSH hardening (no root, key-only)     │
-└─────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│                      Hyperion System                         │
+├─────────────────────────────────────────────────────────────┤
+│  systemd target: hyperion.target                            │
+│  ├── hyperion-claude.service (always-on Claude in tmux)    │
+│  └── hyperion-router.service (Telegram bot)                │
+├─────────────────────────────────────────────────────────────┤
+│  Claude's Main Loop (runs forever)                          │
+│  ┌──────────────────────────────────────────────────────┐  │
+│  │  while True:                                          │  │
+│  │      messages = wait_for_messages()  # blocks here   │  │
+│  │      for msg in messages:                             │  │
+│  │          response = process(msg)                      │  │
+│  │          send_reply(msg.chat_id, response)            │  │
+│  │          mark_processed(msg.id)                       │  │
+│  └──────────────────────────────────────────────────────┘  │
+├─────────────────────────────────────────────────────────────┤
+│  MCP Server: hyperion-inbox                                 │
+│  ├── wait_for_messages() - blocks until inbox has messages │
+│  ├── check_inbox() - list pending messages                 │
+│  ├── send_reply() - write to outbox                        │
+│  └── mark_processed() - move to processed/                 │
+├─────────────────────────────────────────────────────────────┤
+│  File-based Message Queue                                   │
+│  ├── ~/messages/inbox/    (incoming JSON files)            │
+│  ├── ~/messages/outbox/   (outgoing JSON files)            │
+│  ├── ~/messages/processed/ (handled messages)              │
+│  └── ~/messages/audio/    (voice message files)            │
+├─────────────────────────────────────────────────────────────┤
+│  Security Layer                                             │
+│  ├── UFW (SSH only by default)                             │
+│  ├── fail2ban (brute-force prevention)                     │
+│  └── SSH hardening (no root, key-only)                     │
+└─────────────────────────────────────────────────────────────┘
 ```
+
+## Message Flow
+
+1. User sends Telegram message (text or voice)
+2. `hyperion-router` (Telegram bot) writes JSON to `~/messages/inbox/`
+3. Voice messages: bot downloads audio, transcribes via OpenAI Whisper
+4. Claude's `wait_for_messages()` returns with new messages
+5. Claude processes message, calls `send_reply(chat_id, text)`
+6. Reply JSON written to `~/messages/outbox/`
+7. Bot's outbox watcher sends reply to Telegram
+8. Claude calls `mark_processed(message_id)`, loops back to `wait_for_messages()`
 
 ## Quick Start
 
 ```bash
 # Run installer
-bash install.sh
+bash setup.sh
 
 # Start services
-sudo systemctl start hyperion
+sudo systemctl start hyperion.target
 
-# Or start interactive session
-agent
+# Attach to Claude session (for debugging)
+tmux -L hyperion attach -t hyperion
+
+# View logs
+journalctl -u hyperion-claude -u hyperion-router -f
 ```
+
+## Key Files
+
+| File | Purpose |
+|------|---------|
+| `services/hyperion-claude.service` | Always-on Claude session |
+| `services/hyperion-router.service` | Telegram bot |
+| `services/hyperion.target` | Systemd target grouping both services |
+| `scripts/claude-wrapper.exp` | Expect script to auto-accept permissions dialog |
+| `src/mcp/inbox_server.py` | MCP server with message queue tools |
+| `src/bot/hyperion_bot.py` | Telegram bot with voice transcription |
