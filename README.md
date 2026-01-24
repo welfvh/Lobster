@@ -27,6 +27,7 @@ Hyperion transforms a server into an always-on Claude Code hub that:
 │   MCP Server: hyperion-inbox                                │
 │   - Message queue management                                │
 │   - Task tracking                                           │
+│   - Scheduled job management                                │
 └─────────────────────────────────────────────────────────────┘
                               ↑↓
                ~/messages/inbox/ ←→ ~/messages/outbox/
@@ -35,6 +36,13 @@ Hyperion transforms a server into an always-on Claude Code hub that:
 │              TELEGRAM BOT                                   │
 │   Writes incoming messages to inbox                         │
 │   Watches outbox and sends replies                          │
+└─────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────┐
+│              SCHEDULED TASKS (Cron)                         │
+│   Automated jobs run on schedule                            │
+│   Each job spawns a fresh Claude instance                   │
+│   Outputs go to ~/messages/task-outputs/                    │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -77,6 +85,12 @@ hyperion help       # Show help
 │   ├── daemon/daemon.py       # Claude daemon
 │   ├── mcp/inbox_server.py    # MCP server
 │   └── cli                    # CLI tool
+├── scheduled-tasks/           # Scheduled jobs system
+│   ├── jobs.json              # Job registry
+│   ├── tasks/                 # Task markdown files
+│   ├── logs/                  # Execution logs
+│   ├── run-job.sh             # Task executor
+│   └── sync-crontab.sh        # Crontab synchronizer
 ├── services/                  # systemd units
 ├── config/                    # Configuration
 └── install.sh                 # Bootstrap installer
@@ -84,7 +98,9 @@ hyperion help       # Show help
 ~/messages/                    # Runtime data
 ├── inbox/                     # Incoming messages
 ├── outbox/                    # Outgoing replies
-└── processed/                 # Archive
+├── processed/                 # Archive
+├── audio/                     # Voice message files
+└── task-outputs/              # Scheduled job outputs
 
 ~/hyperion-workspace/          # Claude workspace
 ├── CLAUDE.md                  # System context
@@ -102,6 +118,9 @@ The hyperion-inbox MCP server provides:
 - `list_sources()` - List available channels
 - `get_stats()` - Inbox statistics
 
+### Voice Transcription
+- `transcribe_audio(message_id)` - Transcribe voice messages using local whisper.cpp (small model). Fully local, no cloud API needed.
+
 ### Task Management
 - `list_tasks(status?)` - List all tasks
 - `create_task(subject, description?)` - Create task
@@ -109,12 +128,68 @@ The hyperion-inbox MCP server provides:
 - `get_task(task_id)` - Get task details
 - `delete_task(task_id)` - Delete task
 
+### Scheduled Jobs
+Create recurring automated tasks that run on a cron schedule:
+- `create_scheduled_job(name, schedule, context)` - Create a new scheduled job
+- `list_scheduled_jobs()` - List all jobs with status
+- `get_scheduled_job(name)` - Get job details and task file
+- `update_scheduled_job(name, schedule?, context?, enabled?)` - Update a job
+- `delete_scheduled_job(name)` - Delete a job
+- `check_task_outputs(since?, limit?, job_name?)` - Check job outputs
+- `write_task_output(job_name, output, status?)` - Write job output (used by job instances)
+
+## Scheduled Jobs
+
+Create automated tasks that run on a schedule:
+
+```
+User: "Every morning at 9am, check the weather and summarize it"
+
+Main Claude:
+  → create_scheduled_job(
+      name="morning-weather",
+      schedule="0 9 * * *",
+      context="Check weather for SF and summarize"
+    )
+
+Every day at 9am:
+  → Cron runs the job
+  → Fresh Claude instance executes task
+  → Output written to ~/messages/task-outputs/
+
+Main Claude:
+  → check_task_outputs() shows results
+```
+
+### Schedule Format (Cron)
+
+| Expression | Meaning |
+|------------|---------|
+| `0 9 * * *` | Daily at 9:00 AM |
+| `*/30 * * * *` | Every 30 minutes |
+| `0 */6 * * *` | Every 6 hours |
+| `0 9 * * 1` | Every Monday at 9:00 AM |
+
+## Voice Messages
+
+Hyperion supports voice message transcription using local whisper.cpp:
+
+- Voice messages are automatically downloaded from Telegram
+- Use `transcribe_audio(message_id)` to transcribe
+- Transcription runs locally using whisper.cpp with the small model (~465MB)
+- No cloud API or API key required
+
+**Dependencies** (installed by setup.sh):
+- whisper.cpp - Local speech recognition
+- FFmpeg - Audio format conversion (OGG → WAV)
+
 ## Services
 
 | Service | Description |
 |---------|-------------|
 | `hyperion-router` | Telegram bot |
 | `hyperion-daemon` | Claude Code processor |
+| `cron` | Scheduled task executor |
 
 Manual control:
 ```bash
