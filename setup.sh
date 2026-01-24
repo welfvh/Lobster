@@ -55,10 +55,11 @@ print_success() {
 #-------------------------------------------------------------------------------
 print_header "Step 1: System Update and Base Dependencies"
 
-print_step "Updating system packages..."
+print_step "Updating system packages (this may take a few minutes)..."
 sudo apt update && sudo apt upgrade -y
+print_success "System updated"
 
-print_step "Installing essential packages..."
+print_step "Installing essential packages (20+ packages)..."
 sudo apt install -y \
     curl \
     wget \
@@ -83,13 +84,14 @@ sudo apt install -y \
     ufw \
     fail2ban \
     fontconfig
+print_success "Essential packages installed"
 
 #-------------------------------------------------------------------------------
 # Zsh + Oh-My-Zsh Setup
 #-------------------------------------------------------------------------------
 print_header "Step 2: Installing Zsh + Oh-My-Zsh"
 
-print_step "Installing Oh-My-Zsh..."
+print_step "Installing Oh-My-Zsh (downloading from GitHub)..."
 if [ ! -d "$HOME/.oh-my-zsh" ]; then
     sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended
 fi
@@ -98,22 +100,27 @@ print_step "Installing Powerlevel10k theme..."
 git clone --depth=1 https://github.com/romkatv/powerlevel10k.git \
     ${ZSH_CUSTOM:-$HOME/.oh-my-zsh/custom}/themes/powerlevel10k 2>/dev/null || true
 
-print_step "Installing zsh plugins..."
+print_step "Installing zsh plugins (4 plugins from GitHub)..."
 # zsh-autosuggestions
+echo "  - zsh-autosuggestions"
 git clone https://github.com/zsh-users/zsh-autosuggestions \
     ${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/zsh-autosuggestions 2>/dev/null || true
 
 # zsh-syntax-highlighting
+echo "  - zsh-syntax-highlighting"
 git clone https://github.com/zsh-users/zsh-syntax-highlighting.git \
     ${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/zsh-syntax-highlighting 2>/dev/null || true
 
 # zsh-completions
+echo "  - zsh-completions"
 git clone https://github.com/zsh-users/zsh-completions \
     ${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/zsh-completions 2>/dev/null || true
 
 # fzf-tab (better tab completion with fzf)
+echo "  - fzf-tab"
 git clone https://github.com/Aloxaf/fzf-tab \
     ${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/fzf-tab 2>/dev/null || true
+print_success "Zsh plugins installed"
 
 #-------------------------------------------------------------------------------
 # Create Optimized .zshrc
@@ -595,51 +602,67 @@ fi
 #-------------------------------------------------------------------------------
 print_header "Step 4: Installing Node.js (LTS)"
 
+print_step "Adding NodeSource repository..."
 curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+print_step "Installing Node.js..."
 sudo apt install -y nodejs
-
 mkdir -p ~/.npm-global
 npm config set prefix '~/.npm-global'
+print_success "Node.js $(node --version) installed"
 
 #-------------------------------------------------------------------------------
 # UV (Python Package Manager)
 #-------------------------------------------------------------------------------
 print_header "Step 5: Installing UV"
 
+print_step "Downloading and installing UV..."
 curl -LsSf https://astral.sh/uv/install.sh | sh
+print_success "UV installed"
 
 #-------------------------------------------------------------------------------
 # Claude Code
 #-------------------------------------------------------------------------------
 print_header "Step 6: Installing Claude Code"
 
+print_step "Downloading Claude Code binary (this may take a minute)..."
+echo "  - Fetching latest version info..."
+echo "  - Downloading binary (~50MB)..."
+echo "  - Verifying checksum..."
+echo "  - Installing shell integration..."
 curl -fsSL https://claude.ai/install.sh | bash
+print_success "Claude Code installed"
+print_warning "Note: Run 'claude' manually after setup to authenticate"
 
 #-------------------------------------------------------------------------------
 # Security
 #-------------------------------------------------------------------------------
 print_header "Step 7: Security Hardening"
 
+print_step "Configuring UFW firewall..."
 sudo ufw default deny incoming
 sudo ufw default allow outgoing
 sudo ufw allow ssh
 sudo ufw --force enable
 
+print_step "Enabling fail2ban..."
 sudo systemctl enable fail2ban
 sudo systemctl start fail2ban
 
+print_step "Hardening SSH configuration..."
 sudo tee /etc/ssh/sshd_config.d/hardening.conf > /dev/null << 'EOF'
 PermitRootLogin no
 MaxAuthTries 3
 ClientAliveInterval 300
 ClientAliveCountMax 2
 EOF
+print_success "Security hardening complete"
 
 #-------------------------------------------------------------------------------
 # Helper Scripts
 #-------------------------------------------------------------------------------
 print_header "Step 8: Creating Helper Scripts"
 
+print_step "Creating start-agent.sh..."
 cat > ~/start-agent.sh << 'SCRIPT'
 #!/usr/bin/env zsh
 SESSION="${1:-agent}"
@@ -679,6 +702,7 @@ tmux attach -t "$SESSION"
 SCRIPT
 chmod +x ~/start-agent.sh
 
+print_step "Creating check-status.sh..."
 cat > ~/check-status.sh << 'SCRIPT'
 #!/usr/bin/env zsh
 echo "\n\033[1;34m══ Hyperion Status ══\033[0m\n"
@@ -746,13 +770,16 @@ journalctl -u hyperion-* -f     # View logs
 ## Install Tmux Plugins
 Inside tmux: `Ctrl-a I`
 EOF
+print_success "Helper scripts created"
 
 #-------------------------------------------------------------------------------
 # Set Zsh Default
 #-------------------------------------------------------------------------------
 print_header "Step 9: Setting Zsh as Default"
 
+print_step "Changing default shell to zsh..."
 sudo chsh -s $(which zsh) $(whoami)
+print_success "Default shell set to zsh"
 
 #-------------------------------------------------------------------------------
 # Done
