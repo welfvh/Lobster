@@ -168,14 +168,27 @@ if ! claude auth status &>/dev/null 2>&1; then
     echo ""
     warn "Claude Code is not authenticated."
     echo ""
-    echo "Please authenticate now by running:"
-    echo -e "  ${CYAN}claude auth login${NC}"
+    echo "You need to authenticate with your Anthropic account."
+    echo "This will open a browser or provide a URL to complete authentication."
     echo ""
-    echo "After authenticating, re-run this installer."
-    exit 1
-fi
+    read -p "Press Enter to start authentication..."
+    echo ""
 
-success "Claude Code authenticated"
+    # Run auth login interactively
+    if claude auth login; then
+        success "Claude Code authenticated"
+    else
+        error "Authentication failed. Please try again."
+        echo ""
+        echo "You can manually authenticate by running:"
+        echo -e "  ${CYAN}claude auth login${NC}"
+        echo ""
+        echo "Then re-run this installer."
+        exit 1
+    fi
+else
+    success "Claude Code already authenticated"
+fi
 
 #===============================================================================
 # Clone Repository
