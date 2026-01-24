@@ -1,0 +1,44 @@
+#!/usr/bin/expect -f
+#
+# Claude wrapper script - Automatically accepts bypass permissions dialog
+# and starts Claude with the Hyperion main loop.
+#
+
+set timeout 30
+
+# Start Claude with bypass permissions
+spawn claude --dangerously-skip-permissions
+
+# Wait for either the permissions dialog OR the ready prompt
+expect {
+    "Yes, I accept" {
+        # Permissions dialog appeared - navigate and accept
+        send "\033\[B"
+        sleep 0.5
+        send "\r"
+        # Now wait for the prompt
+        expect {
+            -re "❯|Try \"" {
+                sleep 2
+            }
+            timeout {
+                puts "Timeout waiting for Claude prompt after dialog"
+                exit 1
+            }
+        }
+    }
+    -re "❯|Try \"" {
+        # Already at prompt - no dialog shown
+        sleep 2
+    }
+    timeout {
+        puts "Timeout waiting for Claude"
+        exit 1
+    }
+}
+
+# Send the initialization command
+send "Read CLAUDE.md and begin your main loop. Call wait_for_messages to start listening for Telegram messages. Never exit.\r"
+
+# Hand over control - Claude runs forever
+interact

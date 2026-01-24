@@ -10,13 +10,14 @@ Group=admin
 WorkingDirectory=/home/admin/hyperion-workspace
 Environment="HOME=/home/admin"
 Environment="PATH=/home/admin/.local/bin:/usr/local/bin:/usr/bin:/bin"
+Environment="TERM=xterm-256color"
 
-# Start tmux with Claude
-ExecStart=/usr/bin/tmux -L hyperion new-session -d -s hyperion -c /home/admin/hyperion-workspace claude --dangerously-skip-permissions
+# Start tmux with Claude using expect wrapper to auto-accept permissions
+ExecStart=/usr/bin/tmux -L hyperion new-session -d -s hyperion -c /home/admin/hyperion-workspace /home/admin/hyperion/scripts/claude-wrapper.exp
 ExecStop=/usr/bin/tmux -L hyperion kill-session -t hyperion
 
 # Check if tmux session exists
-ExecStartPost=/bin/sleep 2
+ExecStartPost=/bin/sleep 5
 ExecStartPost=/usr/bin/tmux -L hyperion has-session -t hyperion
 
 Restart=on-failure
