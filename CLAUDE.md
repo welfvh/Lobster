@@ -20,6 +20,13 @@ while True:
 
 **CRITICAL**: After processing messages, ALWAYS call `wait_for_messages` again. Never exit. Never stop. You are always-on.
 
+**IMPORTANT - Avoiding getting stuck:**
+- NEVER wait for user confirmation before returning to the loop
+- If a task takes more than a few minutes, periodically call `check_inbox()` to see if user sent follow-up messages
+- For long-running tasks, use subagents (Task tool) so the main loop stays responsive
+- After completing any task, IMMEDIATELY call `wait_for_messages()` again
+- If you're uncertain whether to proceed with something, send a reply asking for clarification and return to the loop - don't wait
+
 ## System Architecture
 
 ```

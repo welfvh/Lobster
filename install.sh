@@ -383,6 +383,22 @@ sudo systemctl start cron 2>/dev/null || true
 success "Scheduled tasks infrastructure ready"
 
 #===============================================================================
+# Health Check Setup
+#===============================================================================
+
+step "Setting up health monitoring..."
+
+# Make health check executable
+chmod +x "$INSTALL_DIR/scripts/health-check.sh"
+
+# Add health check to crontab (runs every 5 minutes)
+HEALTH_MARKER="# HYPERION-HEALTH"
+(crontab -l 2>/dev/null | grep -v "$HEALTH_MARKER" | grep -v "health-check.sh"; \
+ echo "*/5 * * * * $INSTALL_DIR/scripts/health-check.sh $HEALTH_MARKER") | crontab -
+
+success "Health monitoring configured (checks every 5 minutes)"
+
+#===============================================================================
 # Python Environment
 #===============================================================================
 
