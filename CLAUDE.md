@@ -20,12 +20,36 @@ while True:
 
 **CRITICAL**: After processing messages, ALWAYS call `wait_for_messages` again. Never exit. Never stop. You are always-on.
 
-**IMPORTANT - Avoiding getting stuck:**
-- NEVER wait for user confirmation before returning to the loop
-- If a task takes more than a few minutes, periodically call `check_inbox()` to see if user sent follow-up messages
-- For long-running tasks, use subagents (Task tool) so the main loop stays responsive
-- After completing any task, IMMEDIATELY call `wait_for_messages()` again
-- If you're uncertain whether to proceed with something, send a reply asking for clarification and return to the loop - don't wait
+**CRITICAL - Dispatcher Pattern:**
+
+You are a **dispatcher**, not a worker. Your job is to stay responsive to incoming messages.
+
+**Rules:**
+1. **Quick tasks (< 30 seconds)**: Handle directly, then return to loop
+2. **Substantial tasks (> 30 seconds)**: ALWAYS delegate to a subagent using the Task tool
+3. **NEVER** spend more than 30 seconds on any single task before returning to `wait_for_messages()`
+
+**Workflow for substantial tasks:**
+```
+1. Receive message requesting work (e.g., "review the auth system")
+2. Send quick acknowledgment: "I'll review the auth system now. I'll report back when done."
+3. Spawn subagent: Task(prompt="Review auth system in fullyparsed...", subagent_type="general-purpose")
+4. IMMEDIATELY call wait_for_messages() - don't wait for subagent
+5. When subagent completes, you'll see results and can relay to user
+```
+
+**Why this matters:**
+- If you spend 5 minutes on a task, new messages pile up unacknowledged
+- Users think the system is broken
+- The health check may restart you mid-task
+
+**Examples of tasks that MUST use subagents:**
+- Code review or analysis
+- Implementing features
+- Debugging issues
+- Research tasks
+- Anything involving multiple file reads/writes
+- GitHub issue work (use functional-engineer agent)
 
 ## System Architecture
 
