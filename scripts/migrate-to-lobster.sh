@@ -1,6 +1,6 @@
 #!/bin/bash
 # Lobster Migration Script
-# Run as: bash /home/admin/hyperion/scripts/migrate-to-lobster.sh
+# Run as: bash /home/admin/lobster/scripts/migrate-to-lobster.sh
 
 set -e
 
@@ -22,7 +22,7 @@ Group=admin
 WorkingDirectory=/home/admin/lobster
 Environment=PATH=/home/admin/.local/bin:/home/admin/.cargo/bin:/usr/local/bin:/usr/bin:/bin
 EnvironmentFile=/home/admin/lobster/config/config.env
-ExecStart=/home/admin/lobster/.venv/bin/python /home/admin/lobster/src/bot/hyperion_bot.py
+ExecStart=/home/admin/lobster/.venv/bin/python /home/admin/lobster/src/bot/lobster_bot.py
 Restart=always
 RestartSec=10
 StandardOutput=journal
@@ -46,7 +46,7 @@ Type=forking
 User=admin
 Group=admin
 WorkingDirectory=/home/admin/lobster-workspace
-Environment=PATH=/home/admin/.claude/bin:/home/admin/.local/bin:/usr/local/bin:/usr/bin:/bin
+Environment=PATH=/home/admin/.local/bin:/usr/local/bin:/usr/bin:/bin
 Environment=HOME=/home/admin
 ExecStart=/usr/bin/tmux -L lobster new-session -d -s lobster -c /home/admin/lobster-workspace /home/admin/lobster/scripts/claude-wrapper.exp
 ExecStop=/usr/bin/tmux -L lobster kill-session -t lobster
@@ -72,7 +72,7 @@ echo "✓ Service files created"
 
 # Step 2: Stop old services
 echo ""
-echo "Step 2: Stopping hyperion services..."
+echo "Step 2: Stopping legacy services..."
 sudo systemctl stop hyperion-claude hyperion-router hyperion.target 2>/dev/null || true
 sleep 3
 
@@ -85,17 +85,17 @@ echo ""
 echo "Step 3: Renaming directories..."
 if [ -d /home/admin/hyperion ] && [ ! -L /home/admin/hyperion ]; then
     mv /home/admin/hyperion /home/admin/lobster
-    echo "✓ hyperion → lobster"
+    echo "✓ renamed to lobster"
 fi
 
 if [ -d /home/admin/hyperion-workspace ] && [ ! -L /home/admin/hyperion-workspace ]; then
     mv /home/admin/hyperion-workspace /home/admin/lobster-workspace
-    echo "✓ hyperion-workspace → lobster-workspace"
+    echo "✓ renamed to lobster-workspace"
 fi
 
 if [ -d /home/admin/hyperion-config ] && [ ! -L /home/admin/hyperion-config ]; then
     mv /home/admin/hyperion-config /home/admin/lobster-config 2>/dev/null || true
-    echo "✓ hyperion-config → lobster-config"
+    echo "✓ renamed to lobster-config"
 fi
 
 # Step 4: Create symlinks for backwards compatibility
@@ -163,6 +163,5 @@ echo "  /home/admin/lobster/"
 echo "  /home/admin/lobster-workspace/"
 echo ""
 echo "Symlinks (backwards compat):"
-echo "  /home/admin/hyperion → /home/admin/lobster"
-echo "  /home/admin/hyperion-workspace → /home/admin/lobster-workspace"
+echo "  /home/admin/lobster (with legacy symlinks for compatibility)"
 echo ""

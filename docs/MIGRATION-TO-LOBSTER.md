@@ -1,30 +1,32 @@
-# Migration Plan: Hyperion → Lobster
+# Migration Plan: Legacy Name to Lobster
+
+> **Status: COMPLETED.** This document is retained for historical reference. The migration from the legacy project name to `lobster` has been completed. Code examples below reference old service/directory names because they describe the migration steps that were executed.
 
 ## Overview
 
-This document outlines the careful migration from `hyperion` to `lobster` naming, including directory renames and all system references.
+This document outlines the careful migration from the legacy project name to `lobster` naming, including directory renames and all system references.
 
 **Critical Risk:** This system is self-modifying. The Claude session running this migration is operating FROM the very directories being renamed. Requires careful orchestration.
 
 ---
 
-## Current State
+## Pre-Migration State (Historical)
 
-### Directories
-- `/home/admin/hyperion/` - Main codebase (now lobster repo)
-- `/home/admin/hyperion-workspace/` - Working directory for Claude sessions
-- `/home/admin/hyperion-config/` - Configuration backup directory
+### Directories (old names, now renamed)
+- `/home/admin/hyperion/` -> now `/home/admin/lobster/`
+- `/home/admin/hyperion-workspace/` -> now `/home/admin/lobster-workspace/`
+- `/home/admin/hyperion-config/` -> now `/home/admin/lobster-config/`
 
-### Systemd Services
-- `hyperion-router.service` - Telegram bot (Python)
-- `hyperion-claude.service` - Claude Code tmux session
-- `hyperion.target` - Service group target
+### Systemd Services (old names, now replaced)
+- `hyperion-router.service` -> now `lobster-router.service`
+- `hyperion-claude.service` -> now `lobster-claude.service`
+- `hyperion.target` -> now `lobster.target`
 
-### Key References
+### Key References (all migrated)
 - Systemd service files in `/etc/systemd/system/`
-- tmux socket: `-L hyperion`
-- tmux session: `-s hyperion`
-- MCP server: `mcp__hyperion-inbox__*`
+- tmux socket: `-L lobster` (was `-L hyperion`)
+- tmux session: `-s lobster` (was `-s hyperion`)
+- MCP server: `mcp__lobster-inbox__*` (was `mcp__hyperion-inbox__*`)
 - Environment variables: Various paths
 - ~/.claude/settings.local.json - Path references
 
@@ -71,7 +73,7 @@ Group=admin
 WorkingDirectory=/home/admin/lobster
 Environment=PATH=/home/admin/.local/bin:/home/admin/.cargo/bin:/usr/local/bin:/usr/bin:/bin
 EnvironmentFile=/home/admin/lobster/config/config.env
-ExecStart=/home/admin/lobster/.venv/bin/python /home/admin/lobster/src/bot/hyperion_bot.py
+ExecStart=/home/admin/lobster/.venv/bin/python /home/admin/lobster/src/bot/lobster_bot.py
 Restart=always
 RestartSec=10
 StandardOutput=journal
@@ -96,7 +98,7 @@ Type=forking
 User=admin
 Group=admin
 WorkingDirectory=/home/admin/lobster-workspace
-Environment=PATH=/home/admin/.claude/bin:/home/admin/.local/bin:/usr/local/bin:/usr/bin:/bin
+Environment=PATH=/home/admin/.local/bin:/usr/local/bin:/usr/bin:/bin
 Environment=HOME=/home/admin
 ExecStart=/usr/bin/tmux -L lobster new-session -d -s lobster -c /home/admin/lobster-workspace /home/admin/lobster/scripts/claude-wrapper.exp
 ExecStop=/usr/bin/tmux -L lobster kill-session -t lobster
@@ -124,14 +126,14 @@ EOF
 
 ```bash
 #!/bin/bash
-# /home/admin/hyperion/scripts/migrate-to-lobster.sh
+# /home/admin/lobster/scripts/migrate-to-lobster.sh
 
 set -e
 
 echo "🦞 Starting Lobster Migration..."
 
-# Stop old services
-echo "Stopping hyperion services..."
+# Stop old (legacy) services
+echo "Stopping legacy services..."
 sudo systemctl stop hyperion-claude hyperion-router hyperion.target || true
 
 # Wait for processes to die
@@ -172,8 +174,8 @@ echo "Verify with: sudo systemctl status lobster-router lobster-claude"
 ### Step 3: Update Claude Settings
 
 After migration, update `/home/admin/.claude/settings.local.json`:
-- Replace all `/home/admin/hyperion/` → `/home/admin/lobster/`
-- Replace `hyperion-inbox` → `lobster-inbox` in MCP tool names
+- Replace all legacy paths with `/home/admin/lobster/`
+- Replace legacy MCP tool names with `lobster-inbox`
 - Replace tmux references
 
 ### Step 4: Update MCP Server Registration
@@ -238,7 +240,7 @@ sudo systemctl start hyperion-router hyperion-claude
 1. `/home/admin/lobster/scripts/*.sh` - Already updated in code
 2. `/home/admin/.claude/settings.local.json` - Path references
 3. Crontab entries
-4. Any external scripts referencing hyperion paths
+4. Any external scripts referencing legacy paths
 
 ---
 
