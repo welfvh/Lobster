@@ -1,0 +1,60 @@
+{
+  "lobster": {
+    "display_name": "Lobster",
+    "role": "CTO",
+    "icon_url": "",
+    "mode": "always-on",
+    "method": "interactive",
+    "channels": ["engineering", "ship-log", "alerts", "general", "random"],
+    "workspace": "/home/lobster/lobster-workspace"
+  },
+  "amber": {
+    "display_name": "Amber",
+    "role": "Personal Companion",
+    "icon_url": "",
+    "mode": "always-on",
+    "method": "p-loop",
+    "channels": [],
+    "workspace": "/home/lobster/amber-workspace",
+    "telegram_only": true
+  },
+  "klaus": {
+    "display_name": "Klaus",
+    "role": "Chief of Staff",
+    "icon_url": "",
+    "mode": "always-on",
+    "method": "p-loop",
+    "channels": ["standup", "engineering", "alerts"],
+    "workspace": "/home/lobster/klaus-workspace"
+  },
+  "jordan": {
+    "display_name": "Jordan B.",
+    "role": "CFO",
+    "icon_url": "",
+    "mode": "scheduled",
+    "method": "run-once",
+    "schedule": "0 8 * * 1-5",
+    "channels": ["standup"],
+    "workspace": "/home/lobster/jordan-workspace"
+  },
+  "scout": {
+    "display_name": "Scout",
+    "role": "Head of Research",
+    "icon_url": "",
+    "mode": "scheduled",
+    "method": "run-once",
+    "schedule": "0 7,18 * * *",
+    "channels": ["research"],
+    "workspace": "/home/lobster/scout-workspace"
+  },
+  "herald": {
+    "display_name": "Herald",
+    "role": "Head of Content",
+    "icon_url": "",
+    "mode": "scheduled",
+    "method": "run-once",
+    "schedule": "0 10 * * *",
+    "channels": ["content"],
+    "workspace": "/home/lobster/herald-workspace"
+  }
+}

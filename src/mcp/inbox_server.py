@@ -154,6 +154,10 @@ SOURCES = {
         "name": "Slack",
         "enabled": True,
     },
+    "internal": {
+        "name": "Internal (IPC)",
+        "enabled": True,
+    },
 }
 
 server = Server("lobster-inbox")
@@ -919,6 +923,21 @@ async def list_tools() -> list[Tool]:
             )
             for tool_def in CALENDAR_TOOLS
         ],
+        # IPC Tool: Send to Amber
+        Tool(
+            name="send_to_amber",
+            description="Send a message to Amber (the other Claude Code agent). The message will appear in Amber's inbox. Use this for inter-agent communication.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "text": {
+                        "type": "string",
+                        "description": "The message text to send to Amber.",
+                    },
+                },
+                "required": ["text"],
+            },
+        ),
     ]
 
 
@@ -1029,6 +1048,9 @@ async def _dispatch_tool(name: str, arguments: dict[str, Any]) -> list[TextConte
         handler = CALENDAR_HANDLERS[name]
         result = handler(arguments)
         return [TextContent(type="text", text=result)]
+    # IPC
+    elif name == "send_to_amber":
+        return await handle_send_to_amber(arguments)
     else:
         return [TextContent(type="text", text=f"Unknown tool: {name}")]
 
@@ -1223,7 +1245,7 @@ async def handle_send_reply(args: dict) -> list[TextContent]:
     }
 
     # Include buttons if provided (Telegram only)
-    if buttons and source == "telegram":
+    if buttons and source.startswith("telegram"):
         reply_data["buttons"] = buttons
 
     # Include thread_ts if provided (Slack only)
@@ -3090,6 +3112,40 @@ async def handle_execute_update(arguments: dict[str, Any]) -> list[TextContent]:
     except Exception as e:
         log.error(f"execute_update failed: {e}", exc_info=True)
         return [TextContent(type="text", text=f"Error executing update: {e}")]
+
+
+# =============================================================================
+# IPC: Send to Amber
+# =============================================================================
+
+AMBER_INBOX_DIR = BASE_DIR / "amber-inbox"
+
+
+async def handle_send_to_amber(args: dict) -> list[TextContent]:
+    """Send a message to Amber's inbox."""
+    text = args.get("text", "").strip()
+
+    if not text:
+        return [TextContent(type="text", text="Error: text is required.")]
+
+    AMBER_INBOX_DIR.mkdir(parents=True, exist_ok=True)
+
+    msg_id = f"ipc_{int(time.time() * 1000)}_lobster"
+    msg_data = {
+        "id": msg_id,
+        "source": "internal",
+        "chat_id": "lobster",
+        "user_name": "Lobster",
+        "text": text,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "type": "text",
+    }
+
+    msg_file = AMBER_INBOX_DIR / f"{msg_id}.json"
+    with open(msg_file, "w") as f:
+        json.dump(msg_data, f, indent=2)
+
+    return [TextContent(type="text", text=f"Message sent to Amber: {text[:100]}{'...' if len(text) > 100 else ''}")]
 
 
 async def main():

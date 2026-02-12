@@ -1,0 +1,43 @@
+#!/usr/bin/expect -f
+#
+# Amber wrapper script - Starts Claude as Amber with the startup sequence.
+#
+
+set timeout 60
+
+# Start Claude with bypass permissions in amber workspace
+spawn claude --dangerously-skip-permissions
+
+# Wait for either the permissions dialog OR the ready prompt
+expect {
+    "Yes, I accept" {
+        send "\033\[B"
+        sleep 0.5
+        send "\r"
+        expect {
+            -re "❯|Try \"" {
+                sleep 2
+            }
+            timeout {
+                puts "Timeout waiting for Claude prompt after dialog"
+                exit 1
+            }
+        }
+    }
+    -re "❯|Try \"" {
+        sleep 2
+    }
+    timeout {
+        puts "Timeout waiting for Claude"
+        exit 1
+    }
+}
+
+# Send the initialization command
+send "Read CLAUDE.md and soul.md. You are Amber. Follow the Startup Sequence in CLAUDE.md exactly, then enter your main loop. Never exit.\r"
+
+# Wait for Claude to start processing
+sleep 5
+
+# Hand over control - Amber runs forever
+interact
