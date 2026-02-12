@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
 """
-Lobster Inbox MCP Server — HTTP Transport
+Lobster Inbox MCP Server — HTTP Transport (Read-Only)
 
-Exposes the existing lobster-inbox MCP server over Streamable HTTP
-so remote Claude Code instances can connect to it.
+Exposes a READ-ONLY subset of the lobster-inbox MCP server over
+Streamable HTTP so remote Claude Code instances can connect to it.
+
+Write tools (send_reply, mark_processed, create_task, etc.) are
+intentionally blocked. Remote clients can read context (tasks, memory,
+conversation history) but cannot send messages on Lobster's behalf.
 
 Usage:
     python inbox_server_http.py [--port 8741]
@@ -27,7 +31,6 @@ Remote Claude Code config (claude_desktop_config.json):
 """
 
 import contextlib
-import json
 import logging
 import os
 import subprocess
@@ -35,20 +38,92 @@ import sys
 import time
 from collections.abc import AsyncIterator
 from pathlib import Path
+from typing import Any
 
 import uvicorn
 from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
+from mcp.server import Server
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
+from mcp.types import Tool, TextContent
 
-# Import the existing server object with all tools registered
+# Import the existing server's tool handlers
 sys.path.insert(0, str(Path(__file__).parent))
-from inbox_server import server
+from inbox_server import server as _full_server, list_tools as _full_list_tools, call_tool as _full_call_tool
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Read-only tool allowlist
+# ---------------------------------------------------------------------------
+# Only these tools are exposed over the HTTP bridge. All other tools
+# (especially write tools like send_reply, mark_processed, etc.) are blocked.
+READONLY_TOOLS = frozenset({
+    # Inbox reading
+    "check_inbox",
+    "wait_for_messages",
+    "list_sources",
+    "get_stats",
+    "get_conversation_history",
+    # Task reading
+    "list_tasks",
+    "get_task",
+    # Scheduled job reading
+    "check_task_outputs",
+    "list_scheduled_jobs",
+    "get_scheduled_job",
+    # Memory reading
+    "memory_search",
+    "memory_recent",
+    "get_handoff",
+    # Brain dump reading
+    "get_brain_dump_status",
+    # Calendar reading
+    "list_calendar_events",
+    "check_availability",
+    "get_week_schedule",
+    # Self-update reading
+    "check_updates",
+    "get_upgrade_plan",
+    # Utilities (read-only)
+    "fetch_page",
+    "transcribe_audio",
+})
+
+# ---------------------------------------------------------------------------
+# Create a read-only MCP server that wraps the full server
+# ---------------------------------------------------------------------------
+readonly_server = Server("lobster-inbox-readonly")
+
+
+@readonly_server.list_tools()
+async def http_list_tools() -> list[Tool]:
+    """Return only the read-only subset of tools."""
+    all_tools = await _full_list_tools()
+    filtered = [t for t in all_tools if t.name in READONLY_TOOLS]
+    logger.info(
+        "HTTP bridge exposing %d/%d tools (read-only)", len(filtered), len(all_tools)
+    )
+    return filtered
+
+
+@readonly_server.call_tool()
+async def http_call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
+    """Dispatch tool calls, blocking any tool not in the allowlist."""
+    if name not in READONLY_TOOLS:
+        logger.warning("HTTP bridge BLOCKED write tool call: %s", name)
+        return [
+            TextContent(
+                type="text",
+                text=f"Error: tool '{name}' is not available over the HTTP bridge "
+                     f"(write access is disabled for remote clients).",
+            )
+        ]
+    return await _full_call_tool(name, arguments)
+
 
 # Load auth token
 AUTH_TOKEN = os.environ.get("MCP_HTTP_TOKEN", "")
@@ -64,9 +139,9 @@ if not AUTH_TOKEN:
     logger.error("No MCP_HTTP_TOKEN configured. Set env var or config/mcp-http-auth.env")
     sys.exit(1)
 
-# Create session manager
+# Create session manager with the READ-ONLY server
 session_manager = StreamableHTTPSessionManager(
-    app=server,
+    app=readonly_server,
     stateless=True,
 )
 
