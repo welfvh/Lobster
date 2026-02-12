@@ -11,7 +11,6 @@ a slower but always-available search mechanism.
 
 import json
 import logging
-import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional

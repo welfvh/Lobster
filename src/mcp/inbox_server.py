@@ -860,6 +860,21 @@ async def list_tools() -> list[Tool]:
                 "properties": {},
             },
         ),
+        Tool(
+            name="mark_consolidated",
+            description="Mark memory events as consolidated (processed by nightly consolidation). Pass a list of event IDs that have been reviewed and synthesized into canonical files.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "event_ids": {
+                        "type": "array",
+                        "items": {"type": "integer"},
+                        "description": "List of event IDs to mark as consolidated.",
+                    },
+                },
+                "required": ["event_ids"],
+            },
+        ),
         # Google Calendar Tools (dynamically loaded from calendar_integration.py)
         *[
             Tool(
@@ -965,6 +980,8 @@ async def _dispatch_tool(name: str, arguments: dict[str, Any]) -> list[TextConte
         return await handle_memory_recent(arguments)
     elif name == "get_handoff":
         return await handle_get_handoff(arguments)
+    elif name == "mark_consolidated":
+        return await handle_mark_consolidated(arguments)
     # Google Calendar Tools
     elif name in CALENDAR_HANDLERS:
         handler = CALENDAR_HANDLERS[name]
@@ -2918,6 +2935,26 @@ async def handle_get_handoff(arguments: dict[str, Any]) -> list[TextContent]:
     except Exception as e:
         log.error(f"get_handoff failed: {e}", exc_info=True)
         return [TextContent(type="text", text=f"Error reading handoff: {e}")]
+
+
+async def handle_mark_consolidated(arguments: dict[str, Any]) -> list[TextContent]:
+    """Mark memory events as consolidated."""
+    if _memory_provider is None:
+        return [TextContent(type="text", text="Memory system is not available.")]
+
+    event_ids = arguments.get("event_ids", [])
+    if not event_ids:
+        return [TextContent(type="text", text="Error: event_ids is required and must be non-empty.")]
+
+    try:
+        _memory_provider.mark_consolidated(event_ids)
+        return [TextContent(
+            type="text",
+            text=f"Marked {len(event_ids)} event(s) as consolidated: {event_ids}"
+        )]
+    except Exception as e:
+        log.error(f"mark_consolidated failed: {e}", exc_info=True)
+        return [TextContent(type="text", text=f"Error marking consolidated: {e}")]
 
 
 async def main():
