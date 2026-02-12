@@ -16,7 +16,6 @@ import logging
 from logging.handlers import RotatingFileHandler
 import os
 import sys
-import tempfile
 import time
 import threading
 import httpx
@@ -30,7 +29,6 @@ from watchdog.events import FileSystemEventHandler
 # Reliability utilities (atomic writes, validation, audit logging, circuit breaker)
 from reliability import (
     atomic_write_json,
-    safe_move,
     validate_send_reply_args,
     validate_message_id,
     ValidationError,
@@ -40,17 +38,19 @@ from reliability import (
     CircuitBreaker,
 )
 
-# Google Calendar integration
-# calendar_integration.py lives in the same directory as inbox_server.py
-import importlib.util as _imp_util
-_cal_spec = _imp_util.spec_from_file_location(
-    "calendar_integration",
-    str(Path(__file__).parent / "calendar_integration.py"),
-)
-_cal_mod = _imp_util.module_from_spec(_cal_spec)
-_cal_spec.loader.exec_module(_cal_mod)
-CALENDAR_TOOLS = _cal_mod.CALENDAR_TOOLS
-CALENDAR_HANDLERS = _cal_mod.CALENDAR_HANDLERS
+# Google Calendar integration (optional — loaded if calendar_integration.py exists)
+_cal_path = Path(__file__).parent / "calendar_integration.py"
+CALENDAR_TOOLS = []
+CALENDAR_HANDLERS = {}
+if _cal_path.exists():
+    import importlib.util as _imp_util
+    _cal_spec = _imp_util.spec_from_file_location(
+        "calendar_integration", str(_cal_path),
+    )
+    _cal_mod = _imp_util.module_from_spec(_cal_spec)
+    _cal_spec.loader.exec_module(_cal_mod)
+    CALENDAR_TOOLS = _cal_mod.CALENDAR_TOOLS
+    CALENDAR_HANDLERS = _cal_mod.CALENDAR_HANDLERS
 
 # MCP SDK
 from mcp.server import Server
@@ -104,9 +104,11 @@ log.addHandler(logging.StreamHandler())
 init_audit_log(LOG_DIR)
 
 # Initialize idempotency tracker to prevent duplicate reply sends
+# TODO: Wire into send_reply and outbox processing paths
 _reply_idempotency = IdempotencyTracker(ttl_seconds=300)
 
 # Circuit breaker for outbox delivery (Telegram/Slack API)
+# TODO: Wire into lobster_bot.py outbox delivery to short-circuit when Telegram is down
 _outbox_breaker = CircuitBreaker("outbox_delivery", failure_threshold=5, cooldown_seconds=120)
 
 # OpenAI configuration for Whisper transcription
@@ -1068,16 +1070,12 @@ async def handle_send_reply(args: dict) -> list[TextContent]:
         reply_data["thread_ts"] = thread_ts
 
     outbox_file = OUTBOX_DIR / f"{reply_id}.json"
-    # Atomic write: temp file + rename to prevent watchdog race condition
-    temp_fd, temp_path = tempfile.mkstemp(dir=str(OUTBOX_DIR), suffix='.tmp')
-    with os.fdopen(temp_fd, 'w') as f:
-        json.dump(reply_data, f, indent=2)
-    os.rename(temp_path, str(outbox_file))
+    # Atomic write: temp file + fsync + rename to prevent watchdog race condition
+    atomic_write_json(outbox_file, reply_data)
 
     # Save a copy to sent directory for conversation history
     sent_file = SENT_DIR / f"{reply_id}.json"
-    with open(sent_file, "w") as f:
-        json.dump(reply_data, f, indent=2)
+    atomic_write_json(sent_file, reply_data)
 
     log.info(f"Reply sent to {source} chat {chat_id}")
 
